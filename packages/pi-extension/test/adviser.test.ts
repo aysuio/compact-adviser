@@ -8,7 +8,7 @@ import {
   requestBody,
   score,
 } from "../src/judge.ts";
-import { requestLogPath } from "../src/log.ts";
+import { auditLogPath, requestLogPath } from "../src/log.ts";
 import { restoreState } from "../src/state.ts";
 import { apiResponse, assistant, flush, harness, success, toolResult } from "./helpers.ts";
 
@@ -427,6 +427,18 @@ test("TypeSafe request logging is off by default and writes a redacted body with
   await off.fire("agent_settled");
   assert.equal(off.calls, 1);
   assert.equal(existsSync(requestLogPath(off.dir)), false);
+  const audit = readFileSync(auditLogPath(off.dir, off.sm.getSessionId()), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0].kind, "judgment");
+  assert.equal(audit[0].adapter, "pi");
+  assert.equal(audit[0].decision.action, "hint");
+  assert.equal(audit[0].decision.qualifies, true);
+  assert.equal(audit[0].judge.inputTokens, 2000);
+  assert.ok(!JSON.stringify(audit).includes("Finish and save the report"));
+  assert.ok(!JSON.stringify(audit).includes("test-key"));
   const on = harness(t);
   on.enable();
   on.selects.push("Log TypeSafe requests: off", "On", "Close");

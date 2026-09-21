@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { autoRequestPath } from "../src/auto.ts";
 import { ConfigStore } from "../src/config.ts";
 import { type Environment, HINT, type HookPayload, handle } from "../src/hook.ts";
-import { requestLogPath } from "../src/log.ts";
+import { auditLogPath, requestLogPath } from "../src/log.ts";
 import { adviserRoot } from "../src/paths.ts";
 import { SessionStore } from "../src/store.ts";
 import {
@@ -62,6 +62,18 @@ test("a settled, large-enough checkpoint is judged once and hints", async () => 
     assert.equal(body.model, "jev-latest");
     assert.deepEqual(body.state.savedArtifacts, ["src/parser.ts"]);
     assert.ok(!JSON.stringify(body).includes(TYPESAFE_KEY), "the key never travels in the body");
+    const auditText = readFileSync(
+      auditLogPath(adviserRoot({ CODEX_HOME: lab.home }), "s1"),
+      "utf8",
+    );
+    const audit = JSON.parse(auditText.trim());
+    assert.equal(audit.kind, "judgment");
+    assert.equal(audit.adapter, "codex");
+    assert.equal(audit.decision.action, "hint");
+    assert.equal(audit.decision.qualifies, true);
+    assert.equal(audit.context.tokens, 70000);
+    assert.ok(!auditText.includes("Build the parser"));
+    assert.ok(!auditText.includes(TYPESAFE_KEY));
   });
 });
 
@@ -372,6 +384,8 @@ test("a failed judgment is logged as a sanitized error kind only", async () => {
       .split("\n")
       .map((line) => JSON.parse(line));
     assert.deepEqual(lines.at(-1).error, { kind: "authentication" });
+    const audit = JSON.parse(readFileSync(auditLogPath(root, "s1"), "utf8").trim());
+    assert.deepEqual(audit.decision, { action: "error", reason: "authentication" });
   });
 });
 

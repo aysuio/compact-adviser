@@ -24,7 +24,16 @@ import {
   requestBody,
 } from "./judge.ts";
 import { promptSecret } from "./key-input.ts";
-import { appendErrorLog, appendRequestLog, appendResponseLog, requestLogPath } from "./log.ts";
+import {
+  appendAuditLog,
+  appendErrorLog,
+  appendRequestLog,
+  appendResponseLog,
+  auditErrorLine,
+  auditJudgmentLine,
+  loggedJudgeErrorKind,
+  requestLogPath,
+} from "./log.ts";
 import { promptMinimum } from "./minimum-input.ts";
 import { type JudgeProfile, parseProfile } from "./profile.ts";
 import {
@@ -183,6 +192,17 @@ export function installAdviser(pi: ExtensionAPI, options: Options): void {
     const profile = parseProfile(config.profile);
     const view = snapshot(ctx, [key(), savedApiKey(store)]);
     if (view.conversationTokens <= 20000 || view.checkpointKey === state.lastHintKey) return;
+    const sessionId = ctx.sessionManager.getSessionId();
+    const auditBase = () => {
+      const usage = ctx.getContextUsage();
+      return {
+        adapter: "pi" as const,
+        sessionId,
+        checkpointKey: view.checkpointKey,
+        tokens: usage?.tokens ?? null,
+        window: usage?.contextWindow ?? null,
+      };
+    };
     let loggedBody: string | undefined;
     if (config.logRequests) {
       try {
@@ -217,11 +237,38 @@ export function installAdviser(pi: ExtensionAPI, options: Options): void {
       }
       // No await between this final cross-session configuration/state check and compact().
       const latest = store.read();
-      if (JSON.stringify(latest) !== configIdentity || eligible(ctx, latest, state) === undefined)
-        return;
-      state = { ...state, failures: 0, retryAfter: 0 };
+      const fraction = usageFraction(ctx);
+      const stillEligible =
+        JSON.stringify(latest) === configIdentity && eligible(ctx, latest, state) !== undefined;
+      const qualified = qualifies(result, fraction, profile);
       const auto = latest.mode === "auto";
-      if (!qualifies(result, usageFraction(ctx), profile)) {
+      const action = !stillEligible
+        ? { action: "suppressed" as const, reason: "state_changed" }
+        : !qualified
+          ? { action: "keep" as const, reason: "score_below_floor" }
+          : auto && !latest.autoAcknowledged
+            ? { action: "suppressed" as const, reason: "auto_not_acknowledged" }
+            : auto
+              ? { action: "compact_requested" as const, reason: "qualified_auto" }
+              : { action: "hint" as const, reason: "qualified_hint" };
+      try {
+        appendAuditLog(
+          options.agentDir,
+          sessionId,
+          auditJudgmentLine(
+            { ...auditBase(), ...action },
+            result,
+            fraction,
+            new Date(now()).toISOString(),
+            profile,
+          ),
+        );
+      } catch {
+        // The content-free audit is observability only; it never changes the decision.
+      }
+      if (!stillEligible) return;
+      state = { ...state, failures: 0, retryAfter: 0 };
+      if (!qualified) {
         persist(state);
         return;
       }
@@ -264,6 +311,15 @@ export function installAdviser(pi: ExtensionAPI, options: Options): void {
       }
     } catch (error) {
       if (!current()) return;
+      try {
+        appendAuditLog(
+          options.agentDir,
+          sessionId,
+          auditErrorLine(auditBase(), loggedJudgeErrorKind(error), new Date(now()).toISOString()),
+        );
+      } catch {
+        // The content-free audit is observability only; it never changes backoff.
+      }
       if (config.logRequests) {
         try {
           appendErrorLog(options.agentDir, error, loggedBody);

@@ -145,6 +145,16 @@ Requests go to `https://api.typesafe.ai/v1/systemone`, are capped at 32,000 seri
 The TypeSafe API key never enters the model context or the request body; it is sent as the Authorization header to authenticate the call.
 Details: [SECURITY.md](SECURITY.md).
 
+## Local decision audit
+
+Pi, Claude Code, and Codex write one local, content-free JSONL line whenever an eligible checkpoint actually calls Jev. The line records the adapter/session identity, a SHA-256 checkpoint key, context token counts, Jev model and token usage, answer choices, score, floor, whether the result qualified, and the resulting local action (`keep`, `hint`, `compact_requested`, `suppressed`, or a sanitized error kind).
+
+The audit never contains the request body, conversation text, tool output, file content, API key, or error message, and it is never transmitted. Cheap local-gate skips create no line because Jev was not called. Full request logging remains separately opt-in and off by default.
+
+- Pi: `~/.pi/agent/compact-adviser-audit-<session-id>.jsonl`
+- Claude Code: `~/.claude/compact-adviser-audit-<session-id>.jsonl`
+- Codex: `${CODEX_HOME:-~/.codex}/compact-adviser/audit/compact-adviser-audit-<session-id>.jsonl`
+
 ## How It Works
 
 ```

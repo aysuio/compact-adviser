@@ -21,7 +21,10 @@ import { DISABLE_ENV, disabledByEnv } from "./disable.ts";
 import { parseDotenvKey, type ResolvedTypesafeApiKey, resolveTypesafeApiKey } from "./env.ts";
 import { judge, qualifies, requestBody } from "./judge.ts";
 import {
+  appendAuditLogLine,
   appendRequestLogLine,
+  auditErrorLine,
+  auditJudgmentLine,
   errorLogLine,
   loggedJudgeErrorKind,
   requestLogLine,
@@ -177,6 +180,13 @@ async function onStop(payload: HookPayload, environment: Environment): Promise<H
   if (view.conversationTokens <= MINIMUM_CONVERSATION_TOKENS) return {};
   const fingerprint = await checkpointKey(view.checkpointText);
   if (state.lastHintKey === fingerprint) return {};
+  const auditBase = {
+    adapter: "codex" as const,
+    sessionId,
+    checkpointKey: fingerprint,
+    tokens,
+    window: rollout.window ?? null,
+  };
 
   let loggedBody: string | undefined;
   if (config.logRequests) {
@@ -201,6 +211,19 @@ async function onStop(payload: HookPayload, environment: Environment): Promise<H
       profile,
     );
   } catch (error) {
+    try {
+      appendAuditLogLine(
+        root,
+        sessionId,
+        auditErrorLine(
+          auditBase,
+          loggedJudgeErrorKind(error),
+          new Date(environment.now()).toISOString(),
+        ),
+      );
+    } catch {
+      // The content-free audit is observability only; it never changes backoff.
+    }
     if (config.logRequests) {
       try {
         appendRequestLogLine(
@@ -242,13 +265,36 @@ async function onStop(payload: HookPayload, environment: Environment): Promise<H
   const latestConfig = new ConfigStore(root).read();
   const current = sessions.read(sessionId, nowAfter).state;
   const settled = { ...current, failures: 0, retryAfter: 0, updatedAt: nowAfter };
-  if (
+  const stillEligible = !(
     latestConfig.mode === "off" ||
     tokens < latestConfig.minContextTokens ||
     cooldownReason(current, tokens, nowAfter) !== undefined ||
-    latestConfig.profile !== config.profile ||
-    !qualifies(result, fraction, profile)
-  ) {
+    latestConfig.profile !== config.profile
+  );
+  const qualified = qualifies(result, fraction, profile);
+  const action = !stillEligible
+    ? { action: "suppressed" as const, reason: "state_changed" }
+    : !qualified
+      ? { action: "keep" as const, reason: "score_below_floor" }
+      : latestConfig.mode === "auto"
+        ? { action: "compact_requested" as const, reason: "qualified_auto" }
+        : { action: "hint" as const, reason: "qualified_hint" };
+  try {
+    appendAuditLogLine(
+      root,
+      sessionId,
+      auditJudgmentLine(
+        { ...auditBase, ...action },
+        result,
+        fraction,
+        new Date(nowAfter).toISOString(),
+        profile,
+      ),
+    );
+  } catch {
+    // The content-free audit is observability only; it never changes the decision.
+  }
+  if (!stillEligible || !qualified) {
     sessions.write(sessionId, settled, usage);
     return {};
   }

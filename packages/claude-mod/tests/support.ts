@@ -310,7 +310,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     const envFile = e.path === ".env" || e.path.endsWith("/.env");
     if (envFile) journal.fsReads.push(e.path);
     if (envFile && options.dotenv !== undefined) return { value: options.dotenv };
-    if (/compact-adviser-requests[^/]*\.jsonl$/.test(String(e.path))) {
+    if (/compact-adviser-(?:requests|audit)[^/]*\.jsonl$/.test(String(e.path))) {
       journal.fsReads.push(e.path);
       const existing = jsonlFiles.get(String(e.path));
       if (existing === undefined) throw new Error("ENOENT");
@@ -321,7 +321,7 @@ export function world(on: On, options: WorldOptions = {}): World {
   on("fs.write", async (_$, e) => {
     const write = e as { path: string; text: string };
     journal.fsWrites.push({ path: write.path, text: write.text });
-    if (/compact-adviser-requests[^/]*\.jsonl$/.test(write.path))
+    if (/compact-adviser-(?:requests|audit)[^/]*\.jsonl$/.test(write.path))
       jsonlFiles.set(write.path, write.text);
     return { value: undefined };
   });

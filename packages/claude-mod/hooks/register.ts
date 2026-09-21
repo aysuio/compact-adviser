@@ -51,6 +51,9 @@ import {
   requestBody,
 } from "../lib/judge.ts";
 import {
+  auditErrorLine,
+  auditJudgmentLine,
+  auditLogPath,
   errorLogLine,
   loggedJudgeErrorKind,
   requestLogLine,
@@ -200,8 +203,23 @@ async function sessionLogPath($: EngineInterface): Promise<string> {
   return requestLogPath(await logHome($), await $.session.id());
 }
 
+async function sessionAuditPath($: EngineInterface): Promise<string> {
+  return auditLogPath(await logHome($), await $.session.id());
+}
+
 async function appendTypeSafeLog($: EngineInterface, line: string): Promise<void> {
   const path = await sessionLogPath($);
+  let existing = "";
+  try {
+    existing = await $.fs.read(path);
+  } catch {
+    existing = "";
+  }
+  await $.fs.write(path, `${existing}${line}`);
+}
+
+async function appendSanitizedAudit($: EngineInterface, line: string): Promise<void> {
+  const path = await sessionAuditPath($);
   let existing = "";
   try {
     existing = await $.fs.read(path);
@@ -230,19 +248,26 @@ async function invalidate($: EngineInterface): Promise<void> {
 }
 
 /** Context tokens over the active limit, or NaN when the engine does not know it (strictest floor). */
-function usageFraction(context: {
+function effectiveWindow(context: {
   tokens?: number;
   window: number;
   breakdown?: { isAutoCompactEnabled: boolean; autoCompactThreshold?: number };
 }): number {
   const threshold = context.breakdown?.autoCompactThreshold;
-  const denominator =
-    context.breakdown?.isAutoCompactEnabled &&
+  return context.breakdown?.isAutoCompactEnabled &&
     typeof threshold === "number" &&
     Number.isFinite(threshold) &&
     threshold > 0
-      ? threshold
-      : context.window;
+    ? threshold
+    : context.window;
+}
+
+function usageFraction(context: {
+  tokens?: number;
+  window: number;
+  breakdown?: { isAutoCompactEnabled: boolean; autoCompactThreshold?: number };
+}): number {
+  const denominator = effectiveWindow(context);
   if (
     typeof context.tokens !== "number" ||
     !Number.isFinite(context.tokens) ||
@@ -288,6 +313,17 @@ async function judgeCheckpoint($: EngineInterface, epoch: number): Promise<void>
     if (view.conversationTokens <= 20000) return;
     const fingerprint = await checkpointKey(view.checkpointText);
     if ((await loadState($)).state.lastHintKey === fingerprint) return;
+    const sessionId = await $.session.id();
+    const auditBase = async () => {
+      const { context } = await $.session.usage({ breakdown: "summary" });
+      return {
+        adapter: "claude" as const,
+        sessionId,
+        checkpointKey: fingerprint,
+        tokens: context.tokens ?? null,
+        window: effectiveWindow(context),
+      };
+    };
     let loggedBody: string | undefined;
     if (initial.logRequests) {
       try {
@@ -319,6 +355,18 @@ async function judgeCheckpoint($: EngineInterface, epoch: number): Promise<void>
           // Error logging must not replace backoff.
         }
       }
+      try {
+        await appendSanitizedAudit(
+          $,
+          auditErrorLine(
+            await auditBase(),
+            loggedJudgeErrorKind(error),
+            new Date(await $.clock.now()).toISOString(),
+          ),
+        );
+      } catch {
+        // The content-free audit is observability only; it never changes backoff.
+      }
       const { key, state } = await loadState($);
       await $.store.set(key, backoff(state, await $.clock.now()));
       notice($, judgeFailureMessage(error));
@@ -345,14 +393,45 @@ async function judgeCheckpoint($: EngineInterface, epoch: number): Promise<void>
         // Response logging must not replace the gate decision.
       }
     }
-    if (
-      JSON.stringify(latest) !== JSON.stringify(initial) ||
-      !(await eligible($, latest, current, context.tokens, now))
-    )
-      return;
-    let state: SessionState = { ...current, failures: 0, retryAfter: 0, updatedAt: now };
+    const stillEligible =
+      JSON.stringify(latest) === JSON.stringify(initial) &&
+      (await eligible($, latest, current, context.tokens, now));
+    const fraction = usageFraction(context);
+    const qualified = qualifies(result, fraction, profile);
     const auto = latest.mode === "auto";
-    if (!qualifies(result, usageFraction(context), profile) || (auto && !latest.autoAcknowledged)) {
+    const action = !stillEligible
+      ? { action: "suppressed" as const, reason: "state_changed" }
+      : !qualified
+        ? { action: "keep" as const, reason: "score_below_floor" }
+        : auto && !latest.autoAcknowledged
+          ? { action: "suppressed" as const, reason: "auto_not_acknowledged" }
+          : auto
+            ? { action: "compact_requested" as const, reason: "qualified_auto" }
+            : { action: "hint" as const, reason: "qualified_hint" };
+    try {
+      await appendSanitizedAudit(
+        $,
+        auditJudgmentLine(
+          {
+            adapter: "claude",
+            sessionId,
+            checkpointKey: fingerprint,
+            tokens: context.tokens ?? null,
+            window: effectiveWindow(context),
+            ...action,
+          },
+          result,
+          fraction,
+          new Date(now).toISOString(),
+          profile,
+        ),
+      );
+    } catch {
+      // The content-free audit is observability only; it never changes the decision.
+    }
+    if (!stillEligible) return;
+    let state: SessionState = { ...current, failures: 0, retryAfter: 0, updatedAt: now };
+    if (!qualified || (auto && !latest.autoAcknowledged)) {
       await $.store.set(key, state);
       return;
     }

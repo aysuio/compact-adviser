@@ -8,6 +8,7 @@ import {
   parseJudgment,
   score,
 } from "../lib/judge.ts";
+import { auditLogPath } from "../lib/log.ts";
 import { RECENT_TAIL_MESSAGES } from "../lib/snapshot.ts";
 import { SESSION_RETENTION_MS } from "../lib/state.ts";
 import {
@@ -151,7 +152,15 @@ describe("turn-end gates", () => {
     expect(w.journal.toasts.includes(HINT)).toBe(false);
     expect(w.journal.suggestions).toEqual([]);
     expect(w.journal.compactions).toHaveLength(0);
-    expect(w.journal.fsWrites).toHaveLength(0);
+    expect(w.journal.fsWrites).toHaveLength(1);
+    expect(w.journal.fsWrites[0]?.path).toBe(auditLogPath("/tmp/fixture-home", SESSION));
+    const audit = lastJsonl(w.journal.fsWrites[0]);
+    expect(audit.kind).toBe("judgment");
+    expect(audit.adapter).toBe("claude");
+    expect(audit.decision.action).toBe("hint");
+    expect(audit.decision.qualifies).toBe(true);
+    expect(JSON.stringify(audit).includes("Build the parser")).toBe(false);
+    expect(JSON.stringify(audit).includes(KEY)).toBe(false);
   });
 
   test("optional request logging writes the TypeSafe body and never the key", async ($, on) => {
@@ -159,7 +168,7 @@ describe("turn-end gates", () => {
     await $.session.start(interactiveStart);
     await turnEnd($, w);
     expect(w.journal.requests).toHaveLength(1);
-    expect(w.journal.fsWrites).toHaveLength(2);
+    expect(w.journal.fsWrites).toHaveLength(3);
     const requestLine = lastJsonl(w.journal.fsWrites[0]);
     const responseLine = lastJsonl(w.journal.fsWrites[1]);
     expect(w.journal.fsWrites[1]?.text.trim().split("\n")).toHaveLength(2);
@@ -187,7 +196,13 @@ describe("turn-end gates", () => {
     w.sessionId = "session-2";
     w.messages = longConversation("Please finish the other parser and commit it.");
     await turnEnd($, w);
-    const paths = [...new Set(w.journal.fsWrites.map((write) => write.path))];
+    const paths = [
+      ...new Set(
+        w.journal.fsWrites
+          .map((write) => write.path)
+          .filter((path) => path.includes("compact-adviser-requests")),
+      ),
+    ];
     expect(paths).toHaveLength(2);
     expect(paths[0]?.endsWith("compact-adviser-requests-session-1.jsonl")).toBe(true);
     expect(paths[1]?.endsWith("compact-adviser-requests-session-2.jsonl")).toBe(true);
@@ -249,7 +264,7 @@ describe("turn-end gates", () => {
     await turnEnd($, w);
     expect(w.journal.requests).toHaveLength(1);
     expect(hinted(w)).toBe(false);
-    expect(w.journal.fsWrites).toHaveLength(2);
+    expect(w.journal.fsWrites).toHaveLength(3);
     const responseLine = lastJsonl(w.journal.fsWrites[1]);
     expect(responseLine.kind).toBe("response");
     expect(responseLine.qualifies).toBe(false);
@@ -262,7 +277,7 @@ describe("turn-end gates", () => {
     w.respond = async () => ({ status: 429, text: `rate-limit ${KEY}` });
     await $.session.start(interactiveStart);
     await turnEnd($, w);
-    expect(w.journal.fsWrites).toHaveLength(2);
+    expect(w.journal.fsWrites).toHaveLength(3);
     const requestLine = lastJsonl(w.journal.fsWrites[0]);
     const errorLine = lastJsonl(w.journal.fsWrites[1]);
     expect(requestLine.kind).toBe("request");
@@ -348,7 +363,7 @@ describe("turn-end gates", () => {
     const w = world(on, { dotenv: "TYPESAFE_API_KEY=from-dotenv\n" });
     await $.session.start(interactiveStart);
     await turnEnd($, w);
-    expect(w.journal.fsReads).toEqual([]);
+    expect(w.journal.fsReads.some((path) => path === ".env" || path.endsWith("/.env"))).toBe(false);
     expect(w.journal.requests).toHaveLength(1);
     expect(w.journal.requests[0]?.headers.Authorization).toBe(`Bearer ${KEY}`);
     expect(w.journal.requests[0]?.body.includes("from-dotenv")).toBe(false);
@@ -362,7 +377,7 @@ describe("turn-end gates", () => {
     });
     await $.session.start(interactiveStart);
     await turnEnd($, w);
-    expect(w.journal.fsReads).toEqual([]);
+    expect(w.journal.fsReads.some((path) => path === ".env" || path.endsWith("/.env"))).toBe(false);
     expect(w.journal.requests).toHaveLength(1);
     expect(w.journal.requests[0]?.headers.Authorization).toBe("Bearer from-saved");
     expect(w.journal.requests[0]?.body.includes("from-saved")).toBe(false);

@@ -28,6 +28,7 @@ import {
   USAGE_STRICT_UNTIL,
 } from "../lib/judge.ts";
 import {
+  auditLogPath,
   errorLogLine,
   loggedJudgeErrorKind,
   requestLogId,
@@ -620,5 +621,8 @@ describe("jev client", () => {
       "/home/fixture/.claude/compact-adviser-requests-_secret.jsonl",
     );
     expect(requestLogName("")).toBe("compact-adviser-requests-session.jsonl");
+    expect(auditLogPath("/home/fixture", "session-1")).toBe(
+      "/home/fixture/.claude/compact-adviser-audit-session-1.jsonl",
+    );
   });
 });

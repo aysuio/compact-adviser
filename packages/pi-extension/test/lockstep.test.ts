@@ -196,6 +196,30 @@ test("every package writes the same TypeSafe log line shape", () => {
       other.errorLogLine("input", undefined, at),
       piLog.errorLogLine("input", undefined, at),
     );
+    const audit = {
+      adapter: "pi" as const,
+      sessionId: "session-1",
+      checkpointKey: "0123456789abcdef",
+      tokens: 45000,
+      window: 200000,
+      action: "hint" as const,
+      reason: "qualified_hint",
+    };
+    assert.equal(
+      other.auditJudgmentLine(audit, judgment, 0.225, at),
+      piLog.auditJudgmentLine(audit, judgment, 0.225, at),
+    );
+    const auditError = {
+      adapter: "pi" as const,
+      sessionId: "session-1",
+      checkpointKey: "0123456789abcdef",
+      tokens: 45000,
+      window: 200000,
+    };
+    assert.equal(
+      other.auditErrorLine(auditError, "timeout", at),
+      piLog.auditErrorLine(auditError, "timeout", at),
+    );
     assert.equal(
       other.loggedJudgeErrorKind(new judge.JudgeError("network")),
       piLog.loggedJudgeErrorKind(new pi.JudgeError("network")),
