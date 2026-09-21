@@ -13,10 +13,10 @@ It is never shown after save, and never written to logs, status lines, error mes
 
 Redaction of known key patterns and obvious sensitive-file results is best-effort, not a guarantee; do not keep this package loaded for material that must not leave the machine.
 Requests are capped at 32,000 serialized UTF-8 bytes.
-The TypeSafe API key never enters the model context or the request body; it is sent as the Authorization header to authenticate the call.
+The TypeSafe API key never enters the model context or the request body; it is sent as the Authorization header to authenticate the call. This fork's Claude adapter may read it from the private path named by `TYPESAFE_API_KEY_FILE`; the path, not the key, is part of the launch environment.
 Errors, timeouts, malformed responses, and contradictory factors never substitute an affirmative judgment.
 
-Automatic compaction on Pi and Claude Code is experimental and lossy; Codex and Grok are hint-only because an outside process cannot trigger `/compact` in their running sessions.
+Automatic compaction is experimental and lossy. Pi and Claude Code call their native session APIs; Codex auto mode emits a transcript-free request for a separately installed local companion; Grok is hint-only.
 A high model probability is not proof of preservation or continuation quality.
 Hint mode is the default; the host's own compaction path and other extensions' hooks remain authoritative.
 

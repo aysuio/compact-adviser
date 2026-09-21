@@ -129,6 +129,15 @@ async function resolvedKey($: EngineInterface) {
   if (fromEnv !== undefined && fromEnv.trim() !== "") {
     return resolveTypesafeApiKey(fromEnv);
   }
+  const keyFile = await $.env.get("TYPESAFE_API_KEY_FILE");
+  if (keyFile !== undefined && keyFile.trim() !== "") {
+    try {
+      const value = (await $.fs.read(keyFile.trim())).trim();
+      if (value !== "") return resolveTypesafeApiKey(value);
+    } catch {
+      // Saved settings and cwd .env remain valid fallback sources.
+    }
+  }
   const saved = readSavedApiKey(await $.config.list(), loadedOptions);
   if (saved) return resolveTypesafeApiKey(undefined, saved);
   let dotenv: string | undefined;
@@ -151,7 +160,13 @@ async function testEndpoint($: EngineInterface): Promise<string | undefined> {
 }
 
 async function loadConfig($: EngineInterface): Promise<Config> {
-  return readConfig(await $.config.list(), await $.store.get(CONSENT_STORE_KEY), loadedOptions);
+  const config = readConfig(
+    await $.config.list(),
+    await $.store.get(CONSENT_STORE_KEY),
+    loadedOptions,
+  );
+  const automatic = await $.env.get("COMPACT_ADVISER_AUTO");
+  return disabledByEnv(automatic) ? { ...config, mode: "auto", autoAcknowledged: true } : config;
 }
 
 async function loadConsent($: EngineInterface): Promise<Consent> {
