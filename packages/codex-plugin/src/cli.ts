@@ -10,7 +10,6 @@
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import {
-  AUTO_UNAVAILABLE,
   ConfigStore,
   DEFAULT_MINIMUM,
   formatTokens,
@@ -30,18 +29,20 @@ import { usageFraction } from "./rollout.ts";
 import { cooldownReason } from "./state.ts";
 import { SessionStore } from "./store.ts";
 
-export const USAGE = `compact-adviser (Codex) - suggests /compact at a completed checkpoint.
+export const USAGE = `compact-adviser (Codex) - judges completed compaction checkpoints.
 
 Usage: compact-adviser <command> [value]
 
   status                    Mode, minimum, key source, and the latest session's cooldown
   hint                      Advise with a hint at eligible checkpoints (default)
+  auto                      Write a per-session auto request for the local companion
   off                       Stop advising; Codex's own compaction is unaffected
   threshold <tokens>        Save an absolute token minimum, or "default" for ${DEFAULT_MINIMUM}
   log <on|off>              Log each TypeSafe request and its outcome to a local jsonl file
   key <set|clear|status>    Save, clear, or report the TypeSafe API key (never printed)
 
-Automatic compaction is not available on Codex: nothing outside a session can run /compact.
+Auto mode is lossy and requires a separately installed local companion that verifies the exact
+idle session and invokes Codex's native compaction path. Running "auto" is the explicit opt-in.
 A key may also come from TYPESAFE_API_KEY in the environment or a .env file in the session's
 working directory; that takes precedence over the saved one.`;
 
@@ -81,6 +82,9 @@ function statusText(environment: CliEnvironment): string {
 
 function saveMode(environment: CliEnvironment, mode: Mode): string {
   new ConfigStore(adviserRoot(environment.env)).update({ mode });
+  if (mode === "auto") {
+    return "Automatic requests saved (all sessions). Compaction is lossy; the local companion must be running.";
+  }
   return mode === "hint"
     ? "Hints only saved (all sessions). Codex's own compaction is unchanged."
     : "Off saved (all sessions). Codex's own compaction is unchanged.";
@@ -127,10 +131,9 @@ export async function run(argv: readonly string[], environment: CliEnvironment):
     case "status":
       return statusText(environment);
     case "hint":
+    case "auto":
     case "off":
       return saveMode(environment, parseMode(command));
-    case "auto":
-      throw new Error(AUTO_UNAVAILABLE);
     case "threshold":
       if (!value) throw new Error("Enter a token count, or default.");
       return saveThreshold(environment, value);

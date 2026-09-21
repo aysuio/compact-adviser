@@ -30,7 +30,7 @@
 
 It uses [Jev](https://typesafe.ai) to instantly judge whether the current session is likely at a boundary that's safe to compact.
 
-It can give you a hint to run `/compact` - or, on Pi and Claude Code, if you opt in, it can run it for you at the right time automatically. Codex CLI and Grok are hint-only: nothing outside their sessions can trigger `/compact`.
+It can give you a hint to run `/compact` - or, on Pi and Claude Code, if you opt in, it can run it for you at the right time automatically. On Codex, auto mode writes an exact per-session request for a separately installed local companion; Grok remains hint-only.
 
 Judgment is two one-sentence Jev questions in one request (is the unit finished; is this hands-on work or coordination), composed in code into one score. The hint floor is 0.90 while the context is mostly empty (through about 10%) and relaxes toward 0.50 by about 90% full - a wrong hint costs most when there is still room. "Full" means the point where the host compacts: on Claude Code that is its auto-compact threshold when enabled, elsewhere the model's window. Automatic mode is the same gate, plus a first-use confirmation.
 
@@ -76,8 +76,9 @@ codex plugin add compact-adviser@compact-adviser
 Restart Codex and review the hook in `/hooks` once, so it is trusted. After a completed
 checkpoint the advice appears as a `↳ Hook · Compact adviser: ...` line under the answer.
 
-Codex is **hint-only**: it has no surface that lets another process run `/compact`, so there is
-no automatic mode there. Settings live in a small CLI instead of a slash command; ask Codex for
+Codex supports hints by itself. Experimental `auto` mode writes a transcript-free request under
+`$CODEX_HOME/compact-adviser/auto-requests/`; a separately installed local companion must verify
+the exact idle session and invoke Codex's native compaction surface. Settings live in a small CLI instead of a slash command; ask Codex for
 "compact-adviser status" and the bundled skill runs it, or run it yourself:
 
 ```sh
@@ -159,8 +160,8 @@ settled turn
  hint: run /compact     or, with explicit auto, native compaction
 ```
 
-Automatic compaction is available on Pi and Claude Code. On Codex the same judgment only ever
-produces the hint, as a `↳ Hook ·` line in the scrollback. On Grok the two halves are separate
+Automatic compaction is native on Pi and Claude Code. On Codex the same judgment either produces
+the hint or, in explicit `auto` mode, an exact request for the local companion. On Grok the two halves are separate
 processes: a `Stop` hook judges and records a verdict, and the `[ui.status_line]` script reads
 that verdict and paints the hint. The Grok hook always allows the stop and prints nothing, so a
 hint can never be fed back to the model.
@@ -180,7 +181,7 @@ hint can never be fed back to the model.
 | `/compact-adviser-install` (Grok) | Register the hooks and print the status-line block to paste into the named `config.toml` |
 | `${GROK_HOME:-$HOME/.grok}/compact-adviser/adviser.sh threshold 60000` (Grok shell) | Save an absolute token minimum; `help` lists the other shell-only settings |
 
-On Codex the same commands are arguments to the plugin's `src/cli.ts` (`status`, `hint`, `off`,
+On Codex the same commands are arguments to the plugin's `src/cli.ts` (`status`, `hint`, `auto`, `off`,
 `threshold`, `log on|off`, `key set|clear|status`) rather than a slash
 command, because Codex plugins cannot register a command with code behind it. Codex has no
 snooze or dismiss: the CLI cannot tell which session is current.

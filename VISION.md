@@ -57,7 +57,7 @@ One default ships and setup asks nothing; a person who wants a different policy 
 Each supported host gets its own implementation that owns its events, storage, and installation, and no implementation reads or loads another's.
 What is shared is the policy, not the machinery: the judge questions, the score, and the floor schedule are byte-identical across hosts, and a test fails when one copy drifts.
 A host adapter is built against what that host actually does, verified by a live end-to-end suite on a pinned version, and its limits are stated in the product rather than papered over.
-When a host gives no outside process a way to run `/compact`, it ships hint-only and says so; an `auto` that cannot be honoured is never offered.
+When a host gives no outside process a way to run `/compact`, it ships hint-only and says so; an `auto` that cannot be honoured is never offered. A host with a documented native compaction surface may emit an exact request to a separately installed user-owned local companion, provided that request contains no transcript and the companion verifies session identity and idleness.
 A host whose install needs manual steps is kept and its tax is documented when the host leaves no way around it; the cost of supporting an awkward host is not a reason to drop it.
 A host that cannot support the full policy may run a reduction of it, so long as the questions and the score stay identical and the reduction follows an existing rule rather than inventing a new one.
 Adding a host is welcome when it is the same product on new ground; it is refused when it would require the shared policy to fork.

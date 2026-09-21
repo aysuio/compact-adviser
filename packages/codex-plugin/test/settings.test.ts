@@ -8,7 +8,6 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { run } from "../src/cli.ts";
 import {
-  AUTO_UNAVAILABLE,
   ConfigStore,
   DEFAULT_CONFIG,
   parseMinimum,
@@ -84,7 +83,10 @@ test("an unreadable or unsupported settings file is reported, never silently rep
     store.update({ mode: "hint" });
     writeFileSync(store.path, JSON.stringify({ version: 2, mode: "hint" }));
     assert.throws(() => store.read(), /Cannot read compact-adviser settings/);
-    writeFileSync(store.path, JSON.stringify({ version: 1, mode: "auto", minContextTokens: 1 }));
+    writeFileSync(
+      store.path,
+      JSON.stringify({ version: 1, mode: "automatic", minContextTokens: 1 }),
+    );
     assert.throws(() => store.read(), /Cannot read compact-adviser settings/);
     writeFileSync(store.path, "x".repeat(9000));
     assert.throws(() => store.read(), /Cannot read compact-adviser settings/);
@@ -97,9 +99,9 @@ test("input parsing refuses what the product does not accept", () => {
   assert.throws(() => parseMinimum("40k"), /positive whole number/);
   assert.throws(() => parseMinimum("0"), /positive whole number/);
   assert.equal(parseMode("hint"), "hint");
+  assert.equal(parseMode("auto"), "auto");
   assert.equal(parseMode("off"), "off");
-  assert.throws(() => parseMode("auto"), /not available on Codex/);
-  assert.throws(() => parseMode("sometimes"), /Enter hint or off/);
+  assert.throws(() => parseMode("sometimes"), /Enter hint, auto, or off/);
   assert.equal(parseSavedApiKey("  tsk-1  "), "tsk-1");
   assert.throws(() => parseSavedApiKey(""), /Enter a TypeSafe API key/);
   assert.throws(() => parseSavedApiKey("tsk\u0007"), /control characters/);
@@ -234,11 +236,11 @@ test("COMPACT_ADVISER_DISABLE makes the CLI take no action", async () => {
   });
 });
 
-test("the CLI explains that automatic mode does not exist on Codex", async () => {
+test("the CLI records explicit automatic-mode opt-in", async () => {
   await withLab(async (lab) => {
-    await assert.rejects(run(["auto"], cli(lab)), /not available on Codex/);
-    assert.ok(AUTO_UNAVAILABLE.includes("/compact"));
-    assert.match(await run([], cli(lab)), /Automatic compaction is not available on Codex/);
+    assert.match(await run(["auto"], cli(lab)), /Automatic requests saved/);
+    assert.equal(new ConfigStore(adviserRoot({ CODEX_HOME: lab.home })).read().mode, "auto");
+    assert.match(await run([], cli(lab)), /local companion/);
     await assert.rejects(run(["nonsense"], cli(lab)), /Usage: compact-adviser/);
   });
 });

@@ -6,7 +6,7 @@ Each harness implementation owns its event handling, dependencies, installation,
 ## Semantics
 
 - Modes: `hint` (default), `auto` (explicit experimental opt-in), and `off`.
-A host that gives no process outside the session a way to run `/compact` ships `hint` and `off` only, and says so rather than offering an `auto` it cannot honour. Codex and Grok are such hosts.
+A host that gives no process outside the session a way to run `/compact` ships `hint` and `off` only, and says so rather than offering an `auto` it cannot honour. Grok is such a host. Codex auto mode requires a separately installed local companion and emits only an exact, transcript-free request for it.
 - The hint is shown to the person, never to the model. A hint is never written into the conversation, returned as hook feedback, or used to keep the agent working.
 - Hint text: Pi, Codex, and Grok display **Compact adviser: work appears completed or recorded. Run /compact to save tokens.** Claude Code's host adds **compact-adviser:**, so the mod supplies only **work appears completed or recorded. Run /compact to save tokens.**
 - `minContextTokens` defaults to the constant **40000**, is configurable and persists with the selected mode.
@@ -33,7 +33,7 @@ Invalid values and cancellation preserve existing settings; failed saves are rep
 | --- | --- | --- |
 | `packages/pi-extension` | Pi implementation | Install this package path with `pi install` |
 | `packages/claude-mod` | Claude Code mod (early-access function-hooks API) | Load this package path with `claude --plugin-dir` and `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` |
-| `packages/codex-plugin` | Codex CLI plugin, hint-only | `codex plugin marketplace add` this repository, then `codex plugin add compact-adviser@compact-adviser` |
+| `packages/codex-plugin` | Codex CLI hint or companion-backed auto request | `codex plugin marketplace add` this repository, then `codex plugin add compact-adviser@compact-adviser` |
 | `packages/grok-plugin` | Grok Build plugin, hint-only | `grok plugin install <path> --trust`, then `/compact-adviser-install` for the hooks and a `[ui.status_line]` opt-in for the hint |
 
 Pi uses its own agent-directory `compact-adviser.json` and Pi session custom entries.
@@ -42,7 +42,7 @@ The Claude Code mod uses its own `userConfig` options (`mode`, `minContextTokens
 `typesafeApiKey` is hidden from `/config` so the host menu never draws the secret.
 The Codex plugin owns `<CODEX_HOME>/compact-adviser/`: one `settings.json`, one cooldown record
 per session, and the request logs. It does not touch `config.toml`, whose unknown keys are an
-error under `--strict-config`, and it has no `auto` mode or acknowledgement to store.
+error under `--strict-config`. Running its CLI `auto` command is the explicit opt-in; the hook then writes one exact per-session request and stays silent.
 Snooze and dismiss are a known gap: Codex gives neither the hook nor the CLI a reliable
 current-session identity, so the CLI could only mutate the most recently written session record.
 No implementation reads or mutates another's records.

@@ -5,8 +5,8 @@
 // records. Only the CLI writes it, so a whole-file atomic replace is the whole story; there
 // is no lock because there is no concurrent writer to serialize against.
 //
-// `auto` is not a Codex mode. Nothing outside a Codex session can trigger `/compact`, so this
-// host ships hint-only and rejects a hand-edited `auto` rather than pretending to honour it.
+// `auto` writes an exact per-session request for a separately installed local companion.
+// The hook never tries to steer the running model or invoke compaction itself.
 
 import { randomUUID } from "node:crypto";
 import {
@@ -23,8 +23,8 @@ import {
 import { dirname, join } from "node:path";
 import { parseProfile } from "./profile.ts";
 
-export type Mode = "hint" | "off";
-export const MODES: readonly Mode[] = ["hint", "off"];
+export type Mode = "hint" | "auto" | "off";
+export const MODES: readonly Mode[] = ["hint", "auto", "off"];
 export const DEFAULT_MINIMUM = 40000;
 export const MAX_SAVED_API_KEY_LENGTH = 1024;
 export const SETTINGS_NAME = "settings.json";
@@ -56,13 +56,9 @@ export function parseMinimum(text: string): number {
   return number;
 }
 
-export const AUTO_UNAVAILABLE =
-  "Automatic compaction is not available on Codex: nothing outside a session can run /compact. Use hint or off.";
-
 export function parseMode(text: string): Mode {
   const value = text.trim();
-  if (value === "auto") throw new Error(AUTO_UNAVAILABLE);
-  if (!MODES.includes(value as Mode)) throw new Error("Enter hint or off.");
+  if (!MODES.includes(value as Mode)) throw new Error("Enter hint, auto, or off.");
   return value as Mode;
 }
 

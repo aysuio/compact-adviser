@@ -2,8 +2,9 @@
 // the TypeSafe request, the hint, and what each failure leaves behind.
 
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
+import { autoRequestPath } from "../src/auto.ts";
 import { ConfigStore } from "../src/config.ts";
 import { type Environment, HINT, type HookPayload, handle } from "../src/hook.ts";
 import { requestLogPath } from "../src/log.ts";
@@ -61,6 +62,29 @@ test("a settled, large-enough checkpoint is judged once and hints", async () => 
     assert.equal(body.model, "jev-latest");
     assert.deepEqual(body.state.savedArtifacts, ["src/parser.ts"]);
     assert.ok(!JSON.stringify(body).includes(TYPESAFE_KEY), "the key never travels in the body");
+  });
+});
+
+test("auto mode writes one exact request and PostCompact clears it", async () => {
+  await withLab(async (lab) => {
+    writeRollout(lab.transcript, settledRollout());
+    const root = adviserRoot({ CODEX_HOME: lab.home });
+    new ConfigStore(root).update({ mode: "auto" });
+    const typesafe = fakeTypesafe();
+    assert.deepEqual(await handle(stop(lab), environment(lab, { fetch: typesafe.fetch })), {});
+    const path = autoRequestPath(root, "s1");
+    const request = JSON.parse(readFileSync(path, "utf8"));
+    assert.equal(request.version, 1);
+    assert.equal(request.sessionId, "s1");
+    assert.equal(typeof request.checkpointKey, "string");
+    assert.equal(request.tokens, 70000);
+    assert.equal(request.window, 200000);
+
+    await handle(
+      { hook_event_name: "PostCompact", session_id: "s1" },
+      environment(lab, { fetch: typesafe.fetch }),
+    );
+    assert.equal(existsSync(path), false);
   });
 });
 

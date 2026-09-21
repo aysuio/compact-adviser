@@ -5,8 +5,9 @@
 // persistent `↳ Hook ·` line in the scrollback right under the answer, which is this host's
 // hint surface. It is not a sticky, clearable widget, so a hint stays where it was printed.
 //
-// Codex is hint-only on purpose: no hook, plugin, or documented client surface lets an outside
-// process run `/compact` on the user's session, so there is no automatic mode here.
+// In auto mode the hook writes an exact, transcript-free request for a separately installed
+// local companion. The companion owns session-id verification and the host's native compaction
+// surface; the hook never steers the model or runs compaction on the Stop critical path.
 //
 // The decisions live in the sibling modules (settings, cooldowns, the bounded judge input, and
 // the Jev client); this file is the only one that knows Codex's event shapes. Nothing it does
@@ -14,6 +15,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { clearAutoRequest, writeAutoRequest } from "./auto.ts";
 import { ConfigStore } from "./config.ts";
 import { DISABLE_ENV, disabledByEnv } from "./disable.ts";
 import { parseDotenvKey, type ResolvedTypesafeApiKey, resolveTypesafeApiKey } from "./env.ts";
@@ -255,6 +257,17 @@ async function onStop(payload: HookPayload, environment: Environment): Promise<H
     { ...settled, lastHintAt: settled.completed, lastHintKey: fingerprint },
     usage,
   );
+  if (latestConfig.mode === "auto") {
+    writeAutoRequest(root, {
+      version: 1,
+      sessionId,
+      checkpointKey: fingerprint,
+      tokens,
+      window: rollout.window ?? null,
+      createdAt: nowAfter,
+    });
+    return {};
+  }
   return { systemMessage: HINT };
 }
 
@@ -264,6 +277,7 @@ function resetAfterCompaction(payload: HookPayload, environment: Environment): v
   if (!sessionId) return;
   const store = new SessionStore(adviserRoot(environment.env));
   store.write(sessionId, initialState(true, environment.now()));
+  clearAutoRequest(adviserRoot(environment.env), sessionId);
 }
 
 export async function handle(payload: HookPayload, environment: Environment): Promise<HookOutput> {
